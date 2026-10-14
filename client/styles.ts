@@ -82,6 +82,7 @@ const CSS = `
 /* 侧边栏导航图标（替换宿主齿轮兜底） */
 .dsm-nav-glyph { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; }
 .dsm-nav-glyph svg { width: 16px; height: 16px; display: block; }
+.dsm-panel-root { padding: 28px 32px; max-width: 1080px; margin: 0 auto; }
 `
 
 export function mountStyles(): () => void {

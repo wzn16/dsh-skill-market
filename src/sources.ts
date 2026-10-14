@@ -128,5 +128,9 @@ export async function removeSource(input: { owner?: string; name?: string; repo?
 /** 内置精选源的说明信息（展示用，不可删） */
 export const BUILTIN_SOURCES = [
   { owner: "anthropics", name: "skills", label: "Claude 官方技能库", builtin: true },
-  { owner: "obra", name: "superpowers", label: "社区方法论技能库", builtin: true },
+  { owner: "obra", name: "superpowers", label: "开发方法论技能库", builtin: true },
+  { owner: "addyosmani", name: "agent-skills", label: "工程方法论（25 技能）", builtin: true },
+  { owner: "K-Dense-AI", name: "scientific-agent-skills", label: "科研技能库（177 技能）", builtin: true },
+  { owner: "coreyhaines31", name: "marketingskills", label: "市场营销技能（50 技能）", builtin: true },
+  { owner: "DietrichGebert", name: "ponytail", label: "多平台技能集（6 技能）", builtin: true },
 ];
