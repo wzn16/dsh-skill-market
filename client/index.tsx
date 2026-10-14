@@ -58,31 +58,55 @@ function snapshotLang(locale: LocaleService): 'zh' | 'en' {
   }
 }
 
-/** section 显隐 gate：register 可能不返回 disposer，全部做防护 */
+/**
+ * section 显隐 gate（对齐 dsh-market section-gate 的状态机语义）：
+ * - available()：宿主槽位就绪回调触发后才真正 apply——修复「config 未读回时
+ *   宿主回调晚到，把刚 unmount 的入口又挂回去」的时序竞态；
+ * - setVisible()：配置卡片/远程配置驱动，随时可调，ready 前只记意愿；
+ * - apply 幂等：shouldShow && 无 disposer → register；!shouldShow && 有 disposer → dispose。
+ */
 function createSectionGate(ctx: ClientContext) {
-  let disposer: unknown = null
-  let mounted = false
+  let ready = false
+  let wanted = true
+  let dispose: (() => void) | null = null
+
+  const register = (): (() => void) => {
+    const off = ctx.slots.register(
+      {
+        name: 'settings.section',
+        id: 'skill-market',
+        order: 55,
+        label: () => (snapshotLang(ctx.locale) === 'zh' ? zh.nav : en.nav),
+        locale: NS,
+        inject: () => ({}),
+      },
+      () => h(App, { locale: ctx.locale }),
+    )
+    return typeof off === 'function' ? (off as () => void) : () => {}
+  }
+
+  const apply = (): void => {
+    if (!ready) return
+    if (wanted && dispose === null) {
+      dispose = register()
+      return
+    }
+    if (!wanted && dispose !== null) {
+      const stop = dispose
+      dispose = null
+      stop()
+    }
+  }
+
   return {
-    mount(): void {
-      if (mounted) return
-      mounted = true
-      disposer = ctx.slots.register(
-        {
-          name: 'settings.section',
-          id: 'skill-market',
-          order: 55,
-          label: () => (snapshotLang(ctx.locale) === 'zh' ? zh.nav : en.nav),
-          locale: NS,
-          inject: () => ({}),
-        },
-        () => h(App, { locale: ctx.locale }),
-      )
+    /** 宿主槽位就绪（settings.section inject 回调触发） */
+    available(): void {
+      ready = true
+      apply()
     },
-    unmount(): void {
-      if (!mounted) return
-      if (typeof disposer === 'function') (disposer as () => void)()
-      disposer = null
-      mounted = false
+    setVisible(visible: boolean): void {
+      wanted = visible
+      apply()
     },
   }
 }
@@ -94,15 +118,15 @@ export function apply(ctx: ClientContext): void {
 
   const gate = createSectionGate(ctx)
   // 默认先挂上（与 config 默认值一致），配置读回后校正
-  ctx.slots.inject('settings.section', () => gate.mount())
+  ctx.slots.inject('settings.section', () => gate.available())
   void import('./api.ts')
     .then(({ getJSON }) => getJSON<{ showEntry: boolean }>('api/dsh-skill-market/config'))
     .then((config) => {
-      if (config.showEntry === false) gate.unmount()
+      if (config.showEntry === false) gate.setVisible(false)
     })
     .catch(() => {})
 
-  const card = () => h(SettingsCard, { onShowEntryChange: (show: boolean) => (show ? gate.mount() : gate.unmount()) })
+  const card = () => h(SettingsCard, { onShowEntryChange: (show: boolean) => gate.setVisible(show) })
 
   // seat 1（旧线）：settings.plugin.item，嵌套 settingsScope
   if (typeof ctx.inject === 'function') {

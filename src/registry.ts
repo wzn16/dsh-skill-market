@@ -258,3 +258,76 @@ export async function getRegistry(): Promise<{ registry: Registry; source: strin
     return { registry: SEED_REGISTRY, source: "seed" };
   }
 }
+
+// ---------- 实时 star（按仓库缓存，修复静态快照过时） ----------
+
+const STARS_TTL_MS = 60 * 60 * 1000;
+
+interface StarsCacheFile {
+  version: 1;
+  repos: Record<string, { stars: number; fetchedAt: number }>;
+}
+
+async function readStarsCache(): Promise<StarsCacheFile> {
+  try {
+    const path = join(cacheDir(), "stars.json");
+    const info = await fs.lstat(path);
+    if (!info.isFile()) throw new Error("no cache");
+    return JSON.parse(await fs.readFile(path, "utf8")) as StarsCacheFile;
+  } catch {
+    return { version: 1, repos: {} };
+  }
+}
+
+async function writeStarsCache(cache: StarsCacheFile): Promise<void> {
+  const dir = cacheDir();
+  await fs.mkdir(dir, { recursive: true });
+  const path = join(dir, "stars.json");
+  const tmp = `${path}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(cache), { flag: "wx" });
+  await fs.rename(tmp, path);
+}
+
+async function getRepoStarsCached(owner: string, name: string): Promise<number | null> {
+  const key = `${owner}/${name}`;
+  const cache = await readStarsCache();
+  const hit = cache.repos[key];
+  if (hit && Date.now() - hit.fetchedAt < STARS_TTL_MS) return hit.stars;
+  try {
+    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
+      redirect: "error",
+      signal: AbortSignal.timeout(6_000),
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "dsh-skill-market" },
+    });
+    if (!response.ok) return hit ? hit.stars : null;
+    const body = (await response.json()) as { stargazers_count?: unknown };
+    if (typeof body.stargazers_count !== "number") return hit ? hit.stars : null;
+    cache.repos[key] = { stars: body.stargazers_count, fetchedAt: Date.now() };
+    await writeStarsCache(cache).catch(() => {});
+    return body.stargazers_count;
+  } catch {
+    return hit ? hit.stars : null;
+  }
+}
+
+/** 用实时 star 覆盖 registry 的静态快照（按仓库去重请求；失败保留原值） */
+export async function withLiveStars(registry: Registry): Promise<Registry> {
+  const repos = Array.from(
+    new Set(registry.skills.map((s) => `${s.repo.owner}/${s.repo.name}`)),
+  );
+  const live = await Promise.all(
+    repos.map(async (key) => {
+      const [owner, name] = key.split("/");
+      return [key, await getRepoStarsCached(owner, name)] as const;
+    }),
+  );
+  const byRepo = new Map(live.filter(([, v]) => v !== null) as [string, number][]);
+  if (byRepo.size === 0) return registry;
+  return {
+    ...registry,
+    skills: registry.skills.map((s) => {
+      const n = byRepo.get(`${s.repo.owner}/${s.repo.name}`);
+      return typeof n === "number" ? { ...s, stars: n } : s;
+    }),
+  };
+}

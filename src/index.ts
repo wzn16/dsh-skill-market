@@ -1,4 +1,4 @@
-import { getRegistry, type Registry } from "./registry.ts";
+import { getRegistry, withLiveStars, type Registry } from "./registry.ts";
 import {
   checkUpdates,
   fetchArchive,
@@ -253,7 +253,8 @@ export async function apply(ctx: PluginContext): Promise<void> {
             if (method === "GET" && path === `${PREFIX}/registry`) {
               return run(w, async () => {
                 const { registry, source } = await getRegistry();
-                return { registry: registry as Registry, source };
+                const live = await withLiveStars(registry);
+                return { registry: live as Registry, source };
               });
             }
             if (method === "GET" && path === `${PREFIX}/browse-repo`) {
