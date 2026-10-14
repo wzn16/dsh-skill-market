@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-market",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Visual skill market inside DeepSeek Harness — browse, search, install and manage Agent Skills. · DSH 可视化技能商店：逛一逛，点一下，装好。",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,9 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
+    "release": "node scripts/release.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1 <5.0.0",

@@ -72,7 +72,7 @@ export interface RepoSkill {
   fileCount: number
 }
 
-type Tab = 'browse' | 'installed' | 'trash'
+type Tab = 'browse' | 'sources' | 'installed' | 'trash'
 
 interface ConfirmState {
   text: string
@@ -382,6 +382,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
           {(
             [
               ['browse', d.tabBrowse],
+              ['sources', d.tabSources],
               ['installed', d.tabInstalled],
               ['trash', d.tabTrash],
             ] as [Tab, string][]
@@ -525,6 +526,56 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
               ))}
             </div>
 
+            {/* 全部技能网格 */}
+            {filtered.length === 0 ? (
+              <div className="dsm-empty">{d.emptyBrowse}</div>
+            ) : (
+              <div className="dsm-grid">
+                {filtered.map((entry) => {
+                  const isIn = installedNames.has(entry.name.toLowerCase())
+                  return (
+                    <div key={entry.name + entry.repo.path} className="dsm-card" onClick={() => setDetail(entry)}>
+                      <div className="dsm-card-head">
+                        <IconWrap category={entry.category} icon={entry.icon} />
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <div className="dsm-name">{entry.name}</div>
+                          <div className="dsm-repo">
+                            {entry.repo.owner}/{entry.repo.name}
+                            {typeof entry.stars === 'number' ? ` · ★ ${fmtStars(entry.stars)}` : ''}
+                          </div>
+                        </span>
+                        {entry.featured ? <span className="dsm-badge">★ {d.featured}</span> : null}
+                      </div>
+                      <div className="dsm-desc">{entry.description || d.noDescription}</div>
+                      <div className="dsm-card-foot">
+                        <span className="dsm-badge">
+                          {categoryLabel(registry, entry.category, lang)}
+                        </span>
+                        {isIn ? (
+                          <span className="dsm-badge">{d.installedBadge}</span>
+                        ) : (
+                          <button
+                            className="dsm-btn"
+                            data-primary="true"
+                            disabled={busy !== ''}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void install(entry.repo, entry.name)
+                            }}
+                          >
+                            {busy === entry.name ? d.installing : d.install}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )
+      ) : tab === 'sources' ? (
+        <>
             {/* 货架来源（透明化 + 自定义源管理） */}
             <div className="dsm-section-title">{d.sourcesTitle}</div>
             <div className="dsm-source-list">
@@ -658,54 +709,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
               )
             ) : null}
 
-            {/* 全部技能网格 */}
-            {filtered.length === 0 ? (
-              <div className="dsm-empty">{d.emptyBrowse}</div>
-            ) : (
-              <div className="dsm-grid">
-                {filtered.map((entry) => {
-                  const isIn = installedNames.has(entry.name.toLowerCase())
-                  return (
-                    <div key={entry.name + entry.repo.path} className="dsm-card" onClick={() => setDetail(entry)}>
-                      <div className="dsm-card-head">
-                        <IconWrap category={entry.category} icon={entry.icon} />
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <div className="dsm-name">{entry.name}</div>
-                          <div className="dsm-repo">
-                            {entry.repo.owner}/{entry.repo.name}
-                            {typeof entry.stars === 'number' ? ` · ★ ${fmtStars(entry.stars)}` : ''}
-                          </div>
-                        </span>
-                        {entry.featured ? <span className="dsm-badge">★ {d.featured}</span> : null}
-                      </div>
-                      <div className="dsm-desc">{entry.description || d.noDescription}</div>
-                      <div className="dsm-card-foot">
-                        <span className="dsm-badge">
-                          {categoryLabel(registry, entry.category, lang)}
-                        </span>
-                        {isIn ? (
-                          <span className="dsm-badge">{d.installedBadge}</span>
-                        ) : (
-                          <button
-                            className="dsm-btn"
-                            data-primary="true"
-                            disabled={busy !== ''}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void install(entry.repo, entry.name)
-                            }}
-                          >
-                            {busy === entry.name ? d.installing : d.install}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </>
-        )
+        </>
       ) : tab === 'installed' ? (
         <>
           <div className="dsm-toolbar">

@@ -3,6 +3,7 @@ export const NS = 'dsh-skill-market'
 export const zh = {
   nav: '技能商店',
   tabBrowse: '逛店',
+  tabSources: '仓库源',
   tabInstalled: '已装',
   tabTrash: '回收站',
   searchPlaceholder: '搜索技能…',
@@ -68,6 +69,7 @@ export const zh = {
 export const en: typeof zh = {
   nav: 'Skill Market',
   tabBrowse: 'Browse',
+  tabSources: 'Sources',
   tabInstalled: 'Installed',
   tabTrash: 'Trash',
   searchPlaceholder: 'Search skills…',

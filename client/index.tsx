@@ -5,6 +5,11 @@
  *
  * 入口显隐：读服务端 config.showEntry，配置卡片切换后实时 mount/unmount
  * （slots.register 可能不返回 disposer，gate 做了防护）。
+ *
+ * 配置卡片与 dsh-market 同构三 seat（对齐宿主不同版本的槽位契约）：
+ * - settings.plugin.item（旧线，嵌套 settingsScope）
+ * - plugins.bundle.config（0.1.7+，key=bundle 包名，view==='summary' 时不渲染）
+ * - settings.plugins.tab（0.1.7 线，设置→插件 里的一个 tab）
  */
 import { createElement as h } from 'react'
 import { App } from './App.tsx'
@@ -39,7 +44,10 @@ interface SettingsScopeHost {
   slots: SlotsService
 }
 
-export const name = 'dsh-skill-market'
+/** bundle 包名（dsh plugin add 的名字；plugins.bundle.config 槽位按它 dispatch） */
+const PACKAGE_NAME = 'dsh-skill-market'
+
+export const name = PACKAGE_NAME
 export const inject = ['slots', 'locale']
 
 function snapshotLang(locale: LocaleService): 'zh' | 'en' {
@@ -94,24 +102,44 @@ export function apply(ctx: ClientContext): void {
     })
     .catch(() => {})
 
-  // 插件管理页的自有配置卡片（rc.7+；嵌套注入，旧宿主缺 settingsScope 时仅少卡片）
+  const card = () => h(SettingsCard, { onShowEntryChange: (show: boolean) => (show ? gate.mount() : gate.unmount()) })
+
+  // seat 1（旧线）：settings.plugin.item，嵌套 settingsScope
   if (typeof ctx.inject === 'function') {
     ctx.inject(['settingsScope'], (scopedUnknown) => {
       const scoped = scopedUnknown as SettingsScopeHost
       scoped.slots.inject('settings.plugin.item', () =>
         scoped.slots.register(
-          {
-            name: 'settings.plugin.item',
-            key: NS,
-            locale: NS,
-            inject: () => ({}),
-          },
-          () =>
-            h(SettingsCard, {
-              onShowEntryChange: (show: boolean) => (show ? gate.mount() : gate.unmount()),
-            }),
+          { name: 'settings.plugin.item', key: NS, locale: NS, inject: () => ({}) },
+          card,
         ),
       )
     })
   }
+
+  // seat 2（0.1.7+）：plugins.bundle.config —— 插件管理页 bundle 详情页的配置卡
+  ctx.slots.inject('plugins.bundle.config', () =>
+    ctx.slots.register(
+      { name: 'plugins.bundle.config', key: PACKAGE_NAME, locale: NS, inject: () => ({}) },
+      (ownerPropsUnknown: unknown) => {
+        const ownerProps = (ownerPropsUnknown ?? {}) as { view?: string }
+        return ownerProps.view === 'summary' ? null : card()
+      },
+    ),
+  )
+
+  // seat 3（0.1.7 线）：settings.plugins.tab —— 设置→插件 section 里的 tab
+  ctx.slots.inject('settings.plugins.tab', () =>
+    ctx.slots.register(
+      {
+        name: 'settings.plugins.tab',
+        id: NS,
+        order: 60,
+        label: () => (snapshotLang(ctx.locale) === 'zh' ? zh.nav : en.nav),
+        locale: NS,
+        inject: () => ({}),
+      },
+      card,
+    ),
+  )
 }
