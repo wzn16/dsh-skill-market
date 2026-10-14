@@ -1,0 +1,5 @@
+# dsh-skill-market bundle patch
+# 供 `dsh plugin add` 自动挂载（Loader bundle 层）
+- insert:
+    - id: dsh-skill-market
+      name: 'dsh-skill-market'
