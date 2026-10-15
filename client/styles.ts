@@ -6,6 +6,10 @@ const STYLE_ID = 'dsh-skill-market-styles'
  */
 const CSS = `
 .dsm-root { font-size: 13px; line-height: 1.5; color: inherit; }
+.dsm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; grid-auto-rows: min-content; }
+@media (max-width: 1100px) { .dsm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .dsm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .dsm-grid { grid-template-columns: 1fr; } }
 .dsm-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .dsm-tabs { display: flex; gap: 4px; }
 .dsm-tab { border: none; background: transparent; color: inherit; opacity: .65; padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .15s, opacity .15s; }
@@ -19,8 +23,7 @@ const CSS = `
 .dsm-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .dsm-chip { border: 1px solid rgba(127,127,127,.3); background: transparent; color: inherit; opacity: .75; border-radius: 999px; padding: 3px 11px; cursor: pointer; font-size: 12.5px; }
 .dsm-chip[data-active="true"] { opacity: 1; background: rgba(127,127,127,.18); font-weight: 600; }
-.dsm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; grid-auto-rows: min-content; }
-.dsm-root { max-width: 1080px; margin: 0 auto; }
+
 .dsm-card { min-height: 150px; border: 1px solid rgba(127,127,127,.25); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .dsm-card:hover { transform: translateY(-2px); border-color: rgba(127,127,127,.55); box-shadow: 0 6px 18px rgba(0,0,0,.09); }
 .dsm-card-head { display: flex; align-items: center; gap: 10px; }
