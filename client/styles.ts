@@ -5,7 +5,7 @@ const STYLE_ID = 'dsh-skill-market-styles'
  * 类名统一 dsm- 前缀避免与宿主冲突。
  */
 const CSS = `
-.dsm-root { font-size: 13px; line-height: 1.5; color: inherit; min-height: 55vh; }
+.dsm-root { width: 100%; box-sizing: border-box; font-size: 13px; line-height: 1.5; color: inherit; min-height: 55vh; }
 .dsm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; grid-auto-rows: min-content; }
 @media (max-width: 1100px) { .dsm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .dsm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -73,8 +73,8 @@ const CSS = `
 .dsm-issues { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; font-size: 11.5px; color: #c2841a; }
 .dsm-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(127,127,127,.4); text-underline-offset: 3px; }
 .dsm-link:hover { text-decoration-color: currentColor; }
-.dsm-source-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-.dsm-source-row { display: flex; align-items: center; gap: 10px; border: 1px solid rgba(127,127,127,.22); border-radius: 10px; padding: 8px 12px; flex-wrap: wrap; }
+.dsm-source-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; width: 100%; }
+.dsm-source-row { display: flex; align-items: center; gap: 10px; border: 1px solid rgba(127,127,127,.22); border-radius: 10px; padding: 8px 12px; flex-wrap: wrap; width: 100%; box-sizing: border-box; }
 .dsm-source-row .dsm-repo { flex: 1; min-width: 0; }
 .dsm-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 4px 0; }
 .dsm-setting-main { flex: 1; min-width: 0; }
