@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { fetchSkillFiles } from "./ghfiles.ts";
+import { httpRequest } from "./http.ts";
 import { unzip } from "./unzip.ts";
 import type { RepoRef } from "./registry.ts";
 import {
@@ -110,36 +112,20 @@ export interface Archive {
 }
 
 async function requestArchive(url: string): Promise<Buffer> {
-  const response = await fetch(url, {
-    redirect: "error",
-    signal: AbortSignal.timeout(60_000),
+  const response = await httpRequest(url, {
     headers: { Accept: "application/zip", "User-Agent": "dsh-skill-market" },
+    timeoutMs: 60_000,
   });
-  if (!response.ok) {
+  if (response.status >= 400) {
     throw marketError(
       `技能包下载失败（HTTP ${response.status}），请稍后重试`,
       "error.market.network",
     );
   }
-  const declared = Number(response.headers.get("content-length"));
-  if (declared > ARCHIVE_LIMIT) {
+  if (response.body.byteLength > ARCHIVE_LIMIT) {
     throw marketError("技能包超过 32 MiB 限制", "error.market.tooLarge");
   }
-  const reader = response.body?.getReader();
-  if (!reader) throw marketError("下载响应为空", "error.market.network");
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.length;
-    if (length > ARCHIVE_LIMIT) {
-      throw marketError("技能包超过 32 MiB 限制", "error.market.tooLarge");
-    }
-    chunks.push(value);
-  }
-  await reader.cancel();
-  return Buffer.concat(chunks, length);
+  return response.body;
 }
 
 /** 解包 GitHub zip：剥离单一顶层目录，逐条路径安全校验 */
@@ -251,6 +237,34 @@ function cachedArchivePath(owner: string, name: string, ref: string): string {
   return join(cacheDir(), `${owner}--${name}--${sha256(Buffer.from(ref)).slice(0, 24)}.zip`);
 }
 
+/**
+ * 拉取技能内容，统一返回「技能目录内相对路径」语义：
+ * 优先按文件拉取（GitHub Contents API，只取目标目录，秒级）；
+ * 失败（限流/网络/结构异常）回落整仓 zip（稳但慢）。
+ */
+export async function fetchSkillEntries(
+  repo: RepoRef,
+  opts?: InstallOpts,
+): Promise<{
+  entries: Record<string, Uint8Array>;
+  hash: string;
+  via: "files" | "archive";
+}> {
+  try {
+    const { entries, hash } = await fetchSkillFiles(repo, opts);
+    return { entries, hash, via: "files" };
+  } catch {
+    const archive = await fetchArchive(repo);
+    const prefix = repo.path.replace(/^\/+|\/+$/g, "");
+    const stripped: Record<string, Uint8Array> = Object.create(null);
+    for (const [p, data] of Object.entries(archive.entries)) {
+      if (prefix && !p.startsWith(`${prefix}/`)) continue;
+      stripped[prefix ? p.slice(prefix.length + 1) : p] = data;
+    }
+    return { entries: stripped, hash: archive.hash, via: "archive" };
+  }
+}
+
 // ---------- 安装 / 卸载 / 已装列表 / 回收站 ----------
 
 async function writeSkillFiles(
@@ -275,12 +289,20 @@ async function writeSkillFiles(
  * 安装一个技能：拉归档 → 定位子目录 → 校验 SKILL.md → 同名冲突检查 → 写入 → 登记。
  * 冲突时不覆盖本地文件，要求先卸载。
  */
-export async function installSkill(input: {
-  owner: string;
-  name: string;
-  ref?: string;
-  path?: string;
-}): Promise<{ name: string; dir: string; fileCount: number }> {
+export interface InstallOpts {
+  signal?: AbortSignal;
+  onProgress?: (p: { stage: "listing" | "downloading"; done: number; total: number }) => void;
+}
+
+export async function installSkill(
+  input: {
+    owner: string;
+    name: string;
+    ref?: string;
+    path?: string;
+  },
+  opts?: InstallOpts,
+): Promise<{ name: string; dir: string; fileCount: number }> {
   const repo: RepoRef = {
     owner: String(input.owner || ""),
     name: String(input.name || ""),
@@ -290,15 +312,18 @@ export async function installSkill(input: {
   if (!/^[a-z0-9][a-z0-9-]{0,38}$/i.test(repo.owner) || !repo.name) {
     throw marketError("仓库地址无效", "error.market.badRepo");
   }
-  const { entries, hash } = await fetchArchive(repo);
-  const prefix = repo.path;
-  const docPath = prefix ? `${prefix}/SKILL.md` : "SKILL.md";
-  const docBytes = entries[docPath];
+  const { entries, hash } = await fetchSkillEntries(repo, opts);
+  const docBytes = entries["SKILL.md"];
   if (!docBytes) {
     throw marketError("该目录下没有 SKILL.md，不是有效技能包", "error.market.notSkill");
   }
   const doc = parseSkillDoc(Buffer.from(docBytes).toString("utf8"));
-  const dirName = (doc.name || prefix.split("/").filter(Boolean).pop() || "").toLowerCase();
+  const dirName = (
+    doc.name ||
+    repo.path.split("/").filter(Boolean).pop() ||
+    repo.name ||
+    ""
+  ).toLowerCase();
   if (!validSkillName(dirName)) {
     throw marketError(
       `技能名无效（${dirName || "空"}）：需为 kebab-case 且非保留名`,
@@ -323,7 +348,7 @@ export async function installSkill(input: {
   await fs.mkdir(root, { recursive: true });
   let files: { path: string; hash: string }[] = [];
   try {
-    files = await writeSkillFiles(targetDir, entries, prefix);
+    files = await writeSkillFiles(targetDir, entries, "");
   } catch (error) {
     await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
     throw error;
@@ -404,9 +429,10 @@ export async function listInstalled(): Promise<InstalledSkill[]> {
       if (!discovery) continue;
       const doc = parseSkillDoc(await fs.readFile(discovery.docPath, "utf8"));
       const record = byName.get(name.toLowerCase());
+      const fullDesc = doc.description;
       result.push({
         name,
-        description: doc.description,
+        description: fullDesc.length > 120 ? `${fullDesc.slice(0, 120)}…` : fullDesc,
         hasFrontmatter: doc.hasFrontmatter,
         enabled: discovery.enabled,
         fromMarket: !!record,
@@ -483,7 +509,10 @@ export async function checkUpdates(): Promise<UpdateStatus[]> {
  * 更新一个商店安装的技能：拉最新归档 → 覆盖本地目录 → 刷新登记。
  * 上游结构变化（SKILL.md 消失）时明确报"上游已删除"，不动本地文件。
  */
-export async function updateSkill(input: { name: string }): Promise<{
+export async function updateSkill(
+  input: { name: string },
+  opts?: InstallOpts,
+): Promise<{
   name: string;
   updated: boolean;
   fileCount?: number;
@@ -508,11 +537,10 @@ export async function updateSkill(input: { name: string }): Promise<{
   }
   // ref 已前进：强制绕过归档缓存重新下载
   await fs.rm(cachedArchivePath(record.repo.owner, record.repo.name, record.repo.ref), { force: true });
-  const { entries, hash } = await fetchArchive(record.repo);
-  const prefix = record.repo.path;
-  if (!entries[prefix ? `${prefix}/SKILL.md` : "SKILL.md"]) {
+  const { entries, hash } = await fetchSkillEntries(record.repo, opts);
+  if (!entries["SKILL.md"]) {
     throw marketError(
-      `上游已删除该技能（${prefix || "仓库根"} 下没有 SKILL.md）；本地文件未改动，可自行卸载`,
+      `上游已删除该技能（${record.repo.path || "仓库根"} 下没有 SKILL.md）；本地文件未改动，可自行卸载`,
       "error.market.upstreamDeleted",
     );
   }
@@ -523,7 +551,7 @@ export async function updateSkill(input: { name: string }): Promise<{
   await fs.mkdir(targetDir, { recursive: true });
   let files: { path: string; hash: string }[] = [];
   try {
-    files = await writeSkillFiles(targetDir, entries, prefix);
+    files = await writeSkillFiles(targetDir, entries, "");
   } catch (error) {
     await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
     throw error;
@@ -553,6 +581,25 @@ export async function uninstallSkill(input: { name: string }): Promise<{ trashId
   }
   const dir = trashDir();
   await fs.mkdir(dir, { recursive: true });
+  // 顺带清理超过 30 天的回收站项
+  try {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (const file of await fs.readdir(dir)) {
+      if (!file.endsWith('.meta.json')) continue;
+      try {
+        const meta = JSON.parse(await fs.readFile(join(dir, file), 'utf8'));
+        const ts = Number(String(meta.trashId ?? '').split('-')[0] ?? 0);
+        if (ts > 0 && ts < cutoff) {
+          await fs.rm(join(dir, meta.trashId), { recursive: true, force: true });
+          await fs.rm(join(dir, file), { force: true });
+        }
+      } catch {
+        // 单项损坏跳过
+      }
+    }
+  } catch {
+    // 清理失败不影响卸载
+  }
   const trashId = `${Date.now()}-${randomUUID()}`;
   await fs.rename(source, join(dir, trashId));
   await fs.writeFile(

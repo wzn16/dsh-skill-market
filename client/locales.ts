@@ -66,6 +66,19 @@ export const zh = {
   sourcesEmpty: '还没有自定义仓库源——用上方输入框添加任意 GitHub 技能仓库',
   sourcesCount: (n: number) => `${n} 个技能`,
   viewOnGithub: '在 GitHub 查看',
+  installCancelled: '已取消',
+  cancelInstall: '取消安装',
+  downloading: '下载中',
+  resultsCount: (n: number) => `${n} 个结果`,
+  clearSearch: '清除',
+  shuffle: '换一批',
+  filterAll: '全部来源',
+  filterMarket: '商店安装',
+  filterLocal: '本地既有',
+  sortByName: '按名称',
+  sourcesLoadFailed: '货架来源加载失败',
+  retryLoad: '重试',
+  trashRetention: '回收站内容保留 30 天，之后自动清理',
 }
 
 export const en: typeof zh = {
@@ -134,6 +147,19 @@ export const en: typeof zh = {
   sourcesEmpty: 'No custom repo sources yet — add any GitHub skill repo above',
   sourcesCount: (n: number) => `${n} skills`,
   viewOnGithub: 'View on GitHub',
+  installCancelled: 'Cancelled',
+  cancelInstall: 'Cancel install',
+  downloading: 'Downloading',
+  resultsCount: (n: number) => `${n} results`,
+  clearSearch: 'Clear',
+  shuffle: 'Shuffle',
+  filterAll: 'All sources',
+  filterMarket: 'From market',
+  filterLocal: 'Local',
+  sortByName: 'Sort by name',
+  sourcesLoadFailed: 'Failed to load shelf sources',
+  retryLoad: 'Retry',
+  trashRetention: 'Trash items are kept for 30 days, then cleaned automatically',
 }
 
 export type Dict = typeof zh

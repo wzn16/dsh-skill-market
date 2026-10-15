@@ -137,6 +137,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
   const [busy, setBusy] = useState('')
   const [toast, setToast] = useState('')
   const [detail, setDetail] = useState<RegistryEntry | null>(null)
+  const [detailBody, setDetailBody] = useState<{ loading: boolean; body: string } | null>(null)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [updates, setUpdates] = useState<Map<string, UpdateStatus>>(new Map())
   const [checking, setChecking] = useState(false)
@@ -144,7 +145,13 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
   const [repoSkills, setRepoSkills] = useState<RepoSkill[] | null>(null)
   const [repoLoading, setRepoLoading] = useState(false)
   const [repoRef, setRepoRef] = useState<{ owner: string; name: string } | null>(null)
+  const [installProgress, setInstallProgress] = useState<{ done: number; total: number } | null>(null)
+  const [cancelVisible, setCancelVisible] = useState(false)
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({})
+  const [installedFilter, setInstalledFilter] = useState<'all' | 'market' | 'local'>('all')
+  const [sortAsc, setSortAsc] = useState(true)
   const [sources, setSources] = useState<SourceRecord[] | null>(null)
+  const [sourcesError, setSourcesError] = useState(false)
   const [builtinSources, setBuiltinSources] = useState<
     { owner: string; name: string; label: string }[] | null
   >(null)
@@ -172,6 +179,9 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
         setSources(src.custom)
         setBuiltinSources(src.builtin)
         setHiddenBuiltins(src.hiddenBuiltins ?? [])
+        setSourcesError(false)
+      } else {
+        setSourcesError(true)
       }
     } catch (e) {
       setError(String((e as Error).message ?? e))
@@ -190,11 +200,61 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
     return () => clearTimeout(id)
   }, [toast])
 
+  useEffect(() => {
+    if (!detail) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setDetail(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detail])
+
+  useEffect(() => {
+    if (!detail) {
+      setDetailBody(null)
+      return
+    }
+    setDetailBody({ loading: true, body: '' })
+    const { owner, name, ref, path } = detail.repo
+    void getJSON<{ body: string }>(
+      `api/dsh-skill-market/detail?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(name)}&ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}`,
+    )
+      .then((doc) => setDetailBody({ loading: false, body: doc.body }))
+      .catch(() => setDetailBody({ loading: false, body: '' }))
+  }, [detail])
+
   const installedNames = new Set(installed.map((s) => s.name.toLowerCase()))
+  const installedList = [...installed]
+    .filter(
+      (s) =>
+        installedFilter === 'all' ||
+        (installedFilter === 'market' && s.fromMarket) ||
+        (installedFilter === 'local' && !s.fromMarket),
+    )
+    .sort((a, b) => (sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)))
+
 
   const install = async (repo: RepoRef, displayName: string): Promise<void> => {
     setBusy(displayName)
-    setError('')
+    setCardErrors((prev) => {
+      const next = { ...prev }
+      delete next[displayName]
+      return next
+    })
+    setInstallProgress(null)
+    setCancelVisible(false)
+    const cancelTimer = setTimeout(() => setCancelVisible(true), 15000)
+    const poll = setInterval(() => {
+      void getJSON<{ status: string; stage: string; done: number; total: number }>(
+        'api/dsh-skill-market/install/progress',
+      )
+        .then((p) => {
+          if (p.status === 'running' && p.stage === 'downloading' && p.total > 0) {
+            setInstallProgress({ done: p.done, total: p.total })
+          }
+        })
+        .catch(() => {})
+    }, 700)
     try {
       const result = await postJSON<{ name: string; fileCount: number }>(
         'api/dsh-skill-market/install',
@@ -203,9 +263,26 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
       setToast(`${d.installedBadge} · ${result.name} (${d.detailFiles(result.fileCount)})`)
       setInstalled(await getJSON<InstalledSkill[]>('api/dsh-skill-market/installed'))
     } catch (e) {
-      setError(String((e as Error).message ?? e))
+      const message = String((e as Error).message ?? e)
+      if (message.includes('取消')) {
+        setToast(`${displayName} · ${d.installCancelled}`)
+      } else {
+        setCardErrors((prev) => ({ ...prev, [displayName]: message }))
+      }
     } finally {
+      clearInterval(poll)
+      clearTimeout(cancelTimer)
       setBusy('')
+      setInstallProgress(null)
+      setCancelVisible(false)
+    }
+  }
+
+  const cancelInstall = async (): Promise<void> => {
+    try {
+      await postJSON('api/dsh-skill-market/install/cancel', {})
+    } catch {
+      // 取消请求失败时安装仍会在完成后自然结束
     }
   }
 
@@ -396,7 +473,12 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
 
   const q = query.trim().toLowerCase()
   const all = registry?.skills ?? []
-  const featured = all.filter((s) => s.featured)
+  const [shuffleSeed, setShuffleSeed] = useState(0)
+  const featuredAll = all.filter((s) => s.featured)
+  const featured =
+    shuffleSeed === 0
+      ? featuredAll
+      : featuredAll.map((_, i) => featuredAll[(i + shuffleSeed) % featuredAll.length])
   const filtered = all
     .filter(
       (s) =>
@@ -441,12 +523,25 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
           ))}
         </div>
         {tab === 'browse' && (
-          <input
-            className="dsm-search"
-            placeholder={d.searchPlaceholder}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <div style={{ flex: '1 1 200px', position: 'relative', display: 'flex' }}>
+            <input
+              className="dsm-search"
+              placeholder={d.searchPlaceholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ paddingRight: query ? 56 : 10 }}
+            />
+            {query ? (
+              <button
+                className="dsm-btn"
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', padding: '2px 8px' }}
+                onClick={() => setQuery('')}
+                aria-label={d.clearSearch}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
         )}
         <button className="dsm-btn" onClick={() => void loadAll()} disabled={loading}>
           {d.refresh}
@@ -484,14 +579,20 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
       ) : null}
 
       {loading ? (
-        <div className="dsm-empty">…</div>
+        <div className="dsm-grid">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={`sk${index}`} className="dsm-card dsm-skeleton" />
+          ))}
+        </div>
       ) : tab === 'browse' ? (
         detail ? (
           <DetailPanel
             entry={detail}
             d={d}
+            lang={lang}
             busy={busy === detail.name}
             alreadyInstalled={installedNames.has(detail.name.toLowerCase())}
+            body={detailBody}
             onBack={() => setDetail(null)}
             onInstall={() => void install(detail.repo, detail.name)}
           />
@@ -502,7 +603,16 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
             {/* 精选横排大卡（WorkBuddy 式） */}
             {!q && featured.length > 0 ? (
               <div className="dsm-featured-wrap">
-                <div className="dsm-section-title">★ {d.featured}</div>
+                <div className="dsm-section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>★ {d.featured}</span>
+                  <button
+                    className="dsm-btn"
+                    onClick={() => setShuffleSeed((n) => n + 1)}
+                    disabled={featured.length < 3}
+                  >
+                    ⟳ {d.shuffle}
+                  </button>
+                </div>
                 <div className="dsm-featured">
                   {featured.map((entry) => {
                     const isIn = installedNames.has(entry.name.toLowerCase())
@@ -510,12 +620,21 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                       <div
                         key={`f-${entry.name}`}
                         className="dsm-featured-card"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${entry.name}，查看详情`}
                         onClick={() => setDetail(entry)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setDetail(entry)
+                          }
+                        }}
                       >
                         <div className="dsm-card-head">
                           <IconWrap category={entry.category} icon={entry.icon} />
                           <span style={{ flex: 1, minWidth: 0 }}>
-                            <div className="dsm-name">{entry.name}</div>
+                            <div className="dsm-name" title={entry.name}>{entry.name}</div>
                             <div className="dsm-repo">
                               {entry.repo.owner}/{entry.repo.name}
                               {typeof entry.stars === 'number' ? ` · ★ ${fmtStars(entry.stars)}` : ''}
@@ -523,6 +642,9 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                           </span>
                         </div>
                         <div className="dsm-desc">{entry.description || d.noDescription}</div>
+                        {cardErrors[entry.name] ? (
+                          <div className="dsm-issues" role="alert">⚠ {cardErrors[entry.name]}</div>
+                        ) : null}
                         <div className="dsm-card-foot">
                           <span className="dsm-badge">
                             {categoryLabel(registry, entry.category, lang)}
@@ -539,7 +661,11 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                                 void install(entry.repo, entry.name)
                               }}
                             >
-                              {busy === entry.name ? d.installing : d.install}
+                              {busy === entry.name
+                                ? installProgress
+                                  ? `${d.downloading} ${installProgress.done}/${installProgress.total}`
+                                  : d.installing
+                                : d.install}
                             </button>
                           )}
                         </div>
@@ -547,6 +673,12 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                     )
                   })}
                 </div>
+              </div>
+            ) : null}
+
+            {q ? (
+              <div className="dsm-notice" style={{ marginTop: 0 }}>
+                {d.resultsCount(filtered.length)}
               </div>
             ) : null}
 
@@ -572,11 +704,24 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                 {filtered.map((entry) => {
                   const isIn = installedNames.has(entry.name.toLowerCase())
                   return (
-                    <div key={entry.name + entry.repo.path} className="dsm-card" onClick={() => setDetail(entry)}>
+                    <div
+                      key={entry.name + entry.repo.path}
+                      className="dsm-card"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${entry.name}，查看详情`}
+                      onClick={() => setDetail(entry)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setDetail(entry)
+                        }
+                      }}
+                    >
                       <div className="dsm-card-head">
                         <IconWrap category={entry.category} icon={entry.icon} />
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <div className="dsm-name">{entry.name}</div>
+                          <div className="dsm-name" title={entry.name}>{entry.name}</div>
                           <div className="dsm-repo">
                             {entry.repo.owner}/{entry.repo.name}
                             {typeof entry.stars === 'number' ? ` · ★ ${fmtStars(entry.stars)}` : ''}
@@ -698,7 +843,14 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                   </div>
                 </div>
               ))}
-              {sources !== null && sources.length === 0 ? (
+              {sourcesError ? (
+                <div className="dsm-error">
+                  <span style={{ flex: 1 }}>{d.sourcesLoadFailed}</span>
+                  <button className="dsm-btn" onClick={() => void loadAll()}>
+                    {d.retryLoad}
+                  </button>
+                </div>
+              ) : sources !== null && sources.length === 0 ? (
                 <div className="dsm-notice">{d.sourcesEmpty}</div>
               ) : null}
             </div>
@@ -788,10 +940,33 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
               </span>
             ) : null}
           </div>
-          {installed.length === 0 ? (
+          <div className="dsm-toolbar">
+            <div className="dsm-chips" style={{ margin: 0 }}>
+              {(
+                [
+                  ['all', d.filterAll],
+                  ['market', d.filterMarket],
+                  ['local', d.filterLocal],
+                ] as ['all' | 'market' | 'local', string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  className="dsm-chip"
+                  data-active={installedFilter === id}
+                  onClick={() => setInstalledFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+              <button className="dsm-chip" onClick={() => setSortAsc(!sortAsc)}>
+                {d.sortByName} {sortAsc ? '↑' : '↓'}
+              </button>
+            </div>
+          </div>
+          {installedList.length === 0 ? (
             <div className="dsm-empty">{d.emptyInstalled}</div>
           ) : (
-            installed.map((s) => {
+            installedList.map((s) => {
               const st = updates.get(s.name)
               return (
                 <div key={s.name} className="dsm-row">
@@ -808,7 +983,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                     {s.issues.length > 0 ? (
                       <div className="dsm-issues">
                         {s.issues.map((code) => (
-                          <span key={code}>⚠ {issueText(d, code)}</span>
+                          <span key={code} title={issueText(d, code)}>⚠ {issueText(d, code)}</span>
                         ))}
                       </div>
                     ) : null}
@@ -882,7 +1057,22 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
         ))
       )}
 
-      {toast ? <div className="dsm-toast">{toast}</div> : null}
+      {tab === 'trash' && trash.length > 0 ? (
+        <div className="dsm-notice">{d.trashRetention}</div>
+      ) : null}
+
+      {busy && cancelVisible ? (
+        <div className="dsm-toast">
+          {busy} · {installProgress ? `${d.downloading} ${installProgress.done}/${installProgress.total}` : d.installing} ·{' '}
+          <button
+            className="dsm-btn"
+            style={{ color: '#fff', borderColor: 'rgba(255,255,255,.5)' }}
+            onClick={() => void cancelInstall()}
+          >
+            {d.cancelInstall}
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -896,12 +1086,14 @@ function categoryLabel(registry: Registry | null, id: string, lang: 'zh' | 'en')
 function DetailPanel(props: {
   entry: RegistryEntry
   d: Dict
+  lang?: 'zh' | 'en'
   busy: boolean
   alreadyInstalled: boolean
+  body?: { loading: boolean; body: string } | null
   onBack: () => void
   onInstall: () => void
 }): React.ReactElement {
-  const { entry, d, busy, alreadyInstalled, onBack, onInstall } = props
+  const { entry, d, lang = 'zh', busy, alreadyInstalled, body, onBack, onInstall } = props
   return (
     <div className="dsm-detail">
       <div className="dsm-detail-head">
@@ -946,6 +1138,12 @@ function DetailPanel(props: {
         >
           {entry.repo.path || '/'} →
         </a>
+      </div>
+      <div className="dsm-section-title" style={{ marginTop: 14 }}>
+        {lang === 'zh' ? '正文预览（SKILL.md）' : 'SKILL.md preview'}
+      </div>
+      <div className="dsm-body">
+        {body?.loading ? '…' : body?.body ? body.body : lang === 'zh' ? '（暂无正文预览）' : '(no preview)'}
       </div>
     </div>
   )

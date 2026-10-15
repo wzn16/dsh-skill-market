@@ -10,6 +10,7 @@ export function SettingsCard({ onShowEntryChange }: { onShowEntryChange: (show: 
   const d = zh
   const [showEntry, setShowEntry] = useState(true)
   const [loaded, setLoaded] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     getJSON<{ showEntry: boolean }>('api/dsh-skill-market/config')
@@ -26,8 +27,10 @@ export function SettingsCard({ onShowEntryChange }: { onShowEntryChange: (show: 
     onShowEntryChange(next)
     try {
       await postJSON('api/dsh-skill-market/config', { showEntry: next })
-    } catch {
-      // 回滚 UI；错误在下一次打开时以服务端值为准
+      setSaveError('')
+    } catch (error) {
+      // 反馈闭环：失败必须可见，且回滚到真实状态
+      setSaveError(String((error as Error).message ?? error))
       setShowEntry(!next)
       onShowEntryChange(!next)
     }
@@ -41,6 +44,7 @@ export function SettingsCard({ onShowEntryChange }: { onShowEntryChange: (show: 
         h('div', { className: 'dsm-row-name' }, d.settingEntryTitle),
         h('div', { className: 'dsm-row-desc' }, d.settingEntryDesc),
       ),
+      saveError ? h('div', { className: 'dsm-issues', role: 'alert' }, `⚠ ${saveError}`) : null,
       h('button', {
         className: 'dsm-switch',
         role: 'switch',

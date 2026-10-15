@@ -1,3 +1,10 @@
+import dns from "node:dns";
+// GitHub API/raw 走 IPv6 在部分网络下会挂起，IPv4 优先显著改善连通性
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch {
+  // 环境不支持时忽略
+}
 import { getRegistry, withLiveStars, type Registry } from "./registry.ts";
 import {
   checkUpdates,
@@ -14,7 +21,9 @@ import {
   updateSkill,
 } from "./installer.ts";
 import { readConfig, writeConfig } from "./config.ts";
+import type { InstallOpts } from "./installer.ts";
 import { addSource, listSources, removeSource, builtinSourcesVisibility, hideBuiltinSource, restoreBuiltinSource, BUILTIN_SOURCES } from "./sources.ts";
+import { fetchSkillEntries } from "./installer.ts";
 import { logPath, marketError } from "./paths.ts";
 
 const NAME = "dsh-skill-market";
@@ -149,7 +158,7 @@ function json(res: Res, code: number, payload: unknown): void {
   }
 }
 
-function run(res: Res, task: () => Promise<unknown>): void {
+function run(res: Res, task: () => Promise<unknown> | unknown): void {
   Promise.resolve()
     .then(task)
     .then((result) => json(res, 200, { ok: true, data: result }))
@@ -190,6 +199,18 @@ export interface PluginContext {
     }): unknown;
   };
 }
+
+/** 最近一次安装的进度（单例：用户一次装一个；前端轮询读取） */
+interface InstallProgress {
+  status: "idle" | "running" | "done" | "error" | "cancelled";
+  stage: "listing" | "downloading" | "writing" | "none";
+  done: number;
+  total: number;
+  name: string;
+  error?: string;
+}
+let installProgress: InstallProgress = { status: "idle", stage: "none", done: 0, total: 0, name: "" };
+let installController: AbortController | null = null;
 
 let logQueue: Promise<void> = Promise.resolve();
 function log(event: string, detail: unknown): void {
@@ -283,6 +304,9 @@ export async function apply(ctx: PluginContext): Promise<void> {
                 };
               });
             }
+            if (method === "GET" && path === `${PREFIX}/install/progress`) {
+              return run(w, () => installProgress);
+            }
             if (method === "GET" && path === `${PREFIX}/config`) {
               return run(w, () => readConfig());
             }
@@ -298,8 +322,8 @@ export async function apply(ctx: PluginContext): Promise<void> {
                 const name = url.searchParams.get("name") || "";
                 const ref = url.searchParams.get("ref") || "main";
                 const path = (url.searchParams.get("path") || "").replace(/^\/+|\/+$/g, "");
-                const { entries } = await fetchArchive({ owner, name, ref, path });
-                const bytes = entries[path ? `${path}/SKILL.md` : "SKILL.md"];
+                const { entries } = await fetchSkillEntries({ owner, name, ref, path });
+                const bytes = entries["SKILL.md"];
                 if (!bytes) throw marketError("找不到 SKILL.md", "error.market.notSkill", 404);
                 return parseSkillDoc(Buffer.from(bytes).toString("utf8"));
               });
@@ -323,10 +347,38 @@ export async function apply(ctx: PluginContext): Promise<void> {
             const result = await enqueueMutation(async () => {
               switch (path) {
                 case `${PREFIX}/install`: {
-                  const r = await installSkill(body as never);
-                  log("install", r);
-                  afterWrite();
-                  return r;
+                  installController = new AbortController();
+                  installProgress = {
+                    status: "running",
+                    stage: "listing",
+                    done: 0,
+                    total: 0,
+                    name: String((body as { name?: string }).name ?? (body as { path?: string }).path ?? ""),
+                  };
+                  const opts: InstallOpts = {
+                    signal: installController.signal,
+                    onProgress: (p) => {
+                      installProgress = { ...installProgress, ...p };
+                    },
+                  };
+                  try {
+                    const r = await installSkill(body as never, opts);
+                    installProgress = { ...installProgress, status: "done", stage: "none" };
+                    log("install", r);
+                    afterWrite();
+                    return r;
+                  } catch (error) {
+                    const cancelled =
+                      (error as { code?: string }).code === "error.market.cancelled" ||
+                      (error as Error).name === "AbortError";
+                    installProgress = {
+                      ...installProgress,
+                      status: cancelled ? "cancelled" : "error",
+                      stage: "none",
+                      error: String((error as Error).message ?? error),
+                    };
+                    throw error;
+                  }
                 }
                 case `${PREFIX}/uninstall`: {
                   const r = await uninstallSkill(body as never);
@@ -353,6 +405,10 @@ export async function apply(ctx: PluginContext): Promise<void> {
                 case `${PREFIX}/sources/builtin/restore`: {
                   await restoreBuiltinSource(body as never);
                   log("source-restore", body);
+                  return { ok: true as const };
+                }
+                case `${PREFIX}/install/cancel`: {
+                  installController?.abort();
                   return { ok: true as const };
                 }
                 case `${PREFIX}/sources/add`: {

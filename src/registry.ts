@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { httpRequest } from "./http.ts";
 import { join } from "node:path";
 import { cacheDir, marketError } from "./paths.ts";
 
@@ -211,14 +212,12 @@ function revalidateInBackground(url: string): void {
 }
 
 async function fetchRemoteRegistry(url: string): Promise<Registry> {
-  const response = await fetch(url, {
-    redirect: "error",
-    // 网络挂起时快速失败回落缓存/种子，不让商店白屏等待
-    signal: AbortSignal.timeout(6_000),
-    headers: { "User-Agent": "dsh-skill-market" },
-  });
-  if (!response.ok) throw marketError(`registry 拉取失败（HTTP ${response.status}）`, "error.market.network");
-  return validateRegistry(JSON.parse(await response.text()));
+  // 网络挂起时快速失败回落缓存/种子，不让商店白屏等待
+  const response = await httpRequest(url, { headers: { "User-Agent": "dsh-skill-market" }, timeoutMs: 6_000 });
+  if (response.status >= 400) {
+    throw marketError(`registry 拉取失败（HTTP ${response.status}）`, "error.market.network");
+  }
+  return validateRegistry(JSON.parse(response.body.toString("utf8")));
 }
 
 /**
@@ -294,13 +293,12 @@ async function getRepoStarsCached(owner: string, name: string): Promise<number |
   const hit = cache.repos[key];
   if (hit && Date.now() - hit.fetchedAt < STARS_TTL_MS) return hit.stars;
   try {
-    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
-      redirect: "error",
-      signal: AbortSignal.timeout(6_000),
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "dsh-skill-market" },
-    });
-    if (!response.ok) return hit ? hit.stars : null;
-    const body = (await response.json()) as { stargazers_count?: unknown };
+    const response = await httpRequest(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      { headers: { Accept: "application/vnd.github+json", "User-Agent": "dsh-skill-market" }, timeoutMs: 6_000 },
+    );
+    if (response.status >= 400) return hit ? hit.stars : null;
+    const body = JSON.parse(response.body.toString("utf8")) as { stargazers_count?: unknown };
     if (typeof body.stargazers_count !== "number") return hit ? hit.stars : null;
     cache.repos[key] = { stars: body.stargazers_count, fetchedAt: Date.now() };
     await writeStarsCache(cache).catch(() => {});

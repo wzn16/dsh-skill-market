@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>dsh-skill-market preview</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "PingFang SC", system-ui, sans-serif; background: #f6f6f7; color: #1c1c1e; }
+  body[data-theme="dark"] { background: #161617; color: #ececec; }
+  #app { display: flex; min-height: 100vh; }
+  #rail { width: 232px; flex-shrink: 0; border-right: 1px solid rgba(127,127,127,.25); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .rail-row { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; opacity: .6; font-size: 13px; }
+  .rail-row.active { opacity: 1; background: rgba(127,127,127,.14); font-weight: 600; }
+  .rail-spacer { height: 10px; }
+  #main { flex: 1; min-width: 0; overflow: auto; }
+  #toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid rgba(127,127,127,.2); position: sticky; top: 0; background: inherit; z-index: 5; }
+  #toolbar button { font-size: 12px; padding: 4px 10px; border-radius: 7px; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; cursor: pointer; }
+  #panel-host { padding: 0; }
+  #settings-host { border-top: 2px dashed rgba(127,127,127,.35); }
+  #settings-host::before { content: "↓ 设置对话框内视图（同 bundle 的另一容器，检查宽度一致性）"; display: block; padding: 8px 16px; font-size: 11px; opacity: .5; }
+  #settings-frame { margin: 0 16px 24px; border: 1px solid rgba(127,127,127,.3); border-radius: 10px; padding: 16px; max-width: 960px; }
+  #boot-error { color: #e5484d; padding: 20px; white-space: pre-wrap; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body data-theme="light">
+<div id="app">
+  <aside id="rail">
+    <div class="rail-row">✳︎ 新会话</div>
+    <div class="rail-row">▦ 创作工坊</div>
+    <div class="rail-row">🧩 插件</div>
+    <div class="rail-row">⚡ 自动化任务</div>
+    <div id="rail-panellist"></div>
+    <div class="rail-row">▤ 记忆系统</div>
+    <div class="rail-spacer"></div>
+    <div class="rail-row" style="opacity:.35;font-size:11px">（模拟宿主侧边栏，入口行由插件 panellist 注册插入）</div>
+  </aside>
+  <main id="main">
+    <div id="toolbar">
+      <button id="theme-toggle">切换深浅主题</button>
+      <button id="reload">重载数据</button>
+      <span style="opacity:.45;font-size:11px" id="meta"></span>
+    </div>
+    <div id="panel-host"></div>
+    <div id="settings-host"><div id="settings-frame"></div></div>
+  </main>
+</div>
+<pre id="diag" style="margin:16px;padding:12px;border:1px solid rgba(127,127,127,.35);border-radius:8px;font-size:11px;white-space:pre-wrap;opacity:.85"></pre>
+<div id="boot-error" hidden></div>
+<script src="/preview/preview.js"></script>
+</body>
+</html>

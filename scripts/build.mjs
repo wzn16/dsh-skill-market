@@ -43,4 +43,16 @@ await build({
   logLevel: 'info',
 })
 
+await build({
+  entryPoints: ['preview/main.tsx'],
+  outfile: 'preview/preview.js',
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2022',
+  jsx: 'automatic',
+  define: { 'process.env.NODE_ENV': '"development"' },
+  logLevel: 'info',
+})
+
 console.log('build done.')
