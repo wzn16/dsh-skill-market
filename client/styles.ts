@@ -5,7 +5,7 @@ const STYLE_ID = 'dsh-skill-market-styles'
  * 类名统一 dsm- 前缀避免与宿主冲突。
  */
 const CSS = `
-.dsm-root { font-size: 13px; line-height: 1.5; color: inherit; }
+.dsm-root { font-size: 13px; line-height: 1.5; color: inherit; min-height: 55vh; }
 .dsm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; grid-auto-rows: min-content; }
 @media (max-width: 1100px) { .dsm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .dsm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
