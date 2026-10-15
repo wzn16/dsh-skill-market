@@ -148,6 +148,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
   const [builtinSources, setBuiltinSources] = useState<
     { owner: string; name: string; label: string }[] | null
   >(null)
+  const [hiddenBuiltins, setHiddenBuiltins] = useState<string[]>([])
 
   const loadAll = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -157,9 +158,11 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
         getJSON<{ registry: Registry; source: string }>('api/dsh-skill-market/registry'),
         getJSON<InstalledSkill[]>('api/dsh-skill-market/installed'),
         getJSON<TrashItem[]>('api/dsh-skill-market/trash'),
-        getJSON<{ builtin: { owner: string; name: string; label: string }[]; custom: SourceRecord[] }>(
-          'api/dsh-skill-market/sources',
-        ).catch(() => null),
+        getJSON<{
+          builtin: { owner: string; name: string; label: string }[]
+          hiddenBuiltins?: string[]
+          custom: SourceRecord[]
+        }>('api/dsh-skill-market/sources').catch(() => null),
       ])
       setRegistry(reg.registry)
       setRegistrySource(reg.source)
@@ -168,6 +171,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
       if (src) {
         setSources(src.custom)
         setBuiltinSources(src.builtin)
+        setHiddenBuiltins(src.hiddenBuiltins ?? [])
       }
     } catch (e) {
       setError(String((e as Error).message ?? e))
@@ -308,6 +312,40 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
       setError(String((e as Error).message ?? e))
     } finally {
       setRepoLoading(false)
+    }
+  }
+
+  const hideBuiltin = async (owner: string, name: string): Promise<void> => {
+    setBusy(name)
+    setError('')
+    try {
+      await postJSON('api/dsh-skill-market/sources/builtin/hide', { owner, name })
+      const src = await getJSON<{ builtin: typeof builtinSources; hiddenBuiltins: string[]; custom: SourceRecord[] }>(
+        'api/dsh-skill-market/sources',
+      )
+      setBuiltinSources(src.builtin)
+      setHiddenBuiltins(src.hiddenBuiltins ?? [])
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const restoreBuiltin = async (owner: string, name: string): Promise<void> => {
+    setBusy(name)
+    setError('')
+    try {
+      await postJSON('api/dsh-skill-market/sources/builtin/restore', { owner, name })
+      const src = await getJSON<{ builtin: typeof builtinSources; hiddenBuiltins: string[] }>(
+        'api/dsh-skill-market/sources',
+      )
+      setBuiltinSources(src.builtin)
+      setHiddenBuiltins(src.hiddenBuiltins ?? [])
+    } catch (e) {
+      setError(String((e as Error).message ?? e))
+    } finally {
+      setBusy('')
     }
   }
 
@@ -599,9 +637,37 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
                     >
                       {d.browse}
                     </button>
+                    <button
+                      className="dsm-btn"
+                      data-danger="true"
+                      disabled={busy !== ''}
+                      onClick={() => void hideBuiltin(b.owner, b.name)}
+                    >
+                      {d.sourcesRemove}
+                    </button>
                   </div>
                 </div>
               ))}
+              {(hiddenBuiltins ?? []).length > 0
+                ? hiddenBuiltins.map((key) => {
+                    const [owner, name] = key.split('/')
+                    return (
+                      <div key={`h-${key}`} className="dsm-source-row" style={{ opacity: 0.55 }}>
+                        <span className="dsm-badge">{d.sourcesHidden}</span>
+                        <span className="dsm-link">{key}</span>
+                        <div className="dsm-row-actions">
+                          <button
+                            className="dsm-btn"
+                            disabled={busy !== ''}
+                            onClick={() => void restoreBuiltin(owner, name)}
+                          >
+                            {d.sourcesRestore}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                : null}
               {(sources ?? []).map((s) => (
                 <div key={s.id} className="dsm-source-row">
                   <span className="dsm-badge">{d.sourcesCustom}</span>

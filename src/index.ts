@@ -14,7 +14,7 @@ import {
   updateSkill,
 } from "./installer.ts";
 import { readConfig, writeConfig } from "./config.ts";
-import { addSource, listSources, removeSource, BUILTIN_SOURCES } from "./sources.ts";
+import { addSource, listSources, removeSource, builtinSourcesVisibility, hideBuiltinSource, restoreBuiltinSource, BUILTIN_SOURCES } from "./sources.ts";
 import { logPath, marketError } from "./paths.ts";
 
 const NAME = "dsh-skill-market";
@@ -274,10 +274,14 @@ export async function apply(ctx: PluginContext): Promise<void> {
               return run(w, () => listInstalled());
             }
             if (method === "GET" && path === `${PREFIX}/sources`) {
-              return run(w, async () => ({
-                builtin: BUILTIN_SOURCES,
-                custom: await listSources(),
-              }));
+              return run(w, async () => {
+                const visibility = await builtinSourcesVisibility();
+                return {
+                  builtin: visibility.visible,
+                  hiddenBuiltins: visibility.hidden,
+                  custom: await listSources(),
+                };
+              });
             }
             if (method === "GET" && path === `${PREFIX}/config`) {
               return run(w, () => readConfig());
@@ -340,6 +344,16 @@ export async function apply(ctx: PluginContext): Promise<void> {
                   const r = await purgeTrash(body as never);
                   log("trash-purge", body);
                   return r;
+                }
+                case `${PREFIX}/sources/builtin/hide`: {
+                  await hideBuiltinSource(body as never);
+                  log("source-hide", body);
+                  return { ok: true as const };
+                }
+                case `${PREFIX}/sources/builtin/restore`: {
+                  await restoreBuiltinSource(body as never);
+                  log("source-restore", body);
+                  return { ok: true as const };
                 }
                 case `${PREFIX}/sources/add`: {
                   const r = await addSource(body as never);

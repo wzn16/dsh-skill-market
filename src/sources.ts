@@ -20,6 +20,8 @@ export interface SourceRecord {
 interface SourcesFile {
   version: 1;
   sources: SourceRecord[];
+  /** 被用户移除显示的内置源（owner/name），可通过重新添加恢复 */
+  hiddenBuiltins?: string[];
 }
 
 export const SOURCES_PATH = () => join(marketHome(), "sources.json");
@@ -84,6 +86,40 @@ export async function listSources(): Promise<SourceRecord[]> {
   return (await read()).sources;
 }
 
+/** 内置源可见性：返回过滤后的内置列表 + 已隐藏清单（供恢复） */
+export async function builtinSourcesVisibility(): Promise<{
+  visible: typeof BUILTIN_SOURCES;
+  hidden: string[];
+}> {
+  const store = await read();
+  const hidden = new Set(store.hiddenBuiltins ?? []);
+  return {
+    visible: BUILTIN_SOURCES.filter((b) => !hidden.has(`${b.owner}/${b.name}`)),
+    hidden: [...hidden],
+  };
+}
+
+/** 移除内置源显示（不删数据，可恢复） */
+export async function hideBuiltinSource(input: { owner?: string; name?: string; repo?: string }): Promise<void> {
+  const { owner, name } = normalizeInput(input);
+  const key = `${owner}/${name}`;
+  if (!BUILTIN_SOURCES.some((b) => `${b.owner}/${b.name}` === key)) {
+    throw marketError("不是内置源，请用 sources/remove 移除自定义源", "error.market.notBuiltin");
+  }
+  const store = await read();
+  store.hiddenBuiltins = Array.from(new Set([...(store.hiddenBuiltins ?? []), key]));
+  await write(store);
+}
+
+/** 恢复内置源显示 */
+export async function restoreBuiltinSource(input: { owner?: string; name?: string; repo?: string }): Promise<void> {
+  const { owner, name } = normalizeInput(input);
+  const key = `${owner}/${name}`;
+  const store = await read();
+  store.hiddenBuiltins = (store.hiddenBuiltins ?? []).filter((k) => k !== key);
+  await write(store);
+}
+
 /** 添加源：立即扫描一次验证可达并统计技能数 */
 export async function addSource(input: {
   repo?: string;
@@ -95,6 +131,21 @@ export async function addSource(input: {
   const store = await read();
   if (store.sources.some((s) => s.owner === owner && s.name === name)) {
     throw marketError("该仓库源已存在", "error.market.sourceExists");
+  }
+  // 内置源被移除过：重新添加即恢复显示
+  const key = `${owner}/${name}`;
+  if ((store.hiddenBuiltins ?? []).includes(key)) {
+    store.hiddenBuiltins = (store.hiddenBuiltins ?? []).filter((k) => k !== key);
+    await write(store);
+    const { entries } = await fetchArchive({ owner, name, ref, path: "" });
+    return {
+      id: key,
+      owner,
+      name,
+      ref,
+      addedAt: new Date().toISOString(),
+      skillCount: scanArchiveSkills(entries).length,
+    };
   }
   if (store.sources.length >= MAX_SOURCES) {
     throw marketError(`最多添加 ${MAX_SOURCES} 个仓库源`, "error.market.tooManySources");
