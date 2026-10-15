@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-market",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Visual skill market inside DeepSeek Harness — browse, search, install and manage Agent Skills. · DSH 可视化技能商店：逛一逛，点一下，装好。",
   "type": "module",
   "license": "MIT",

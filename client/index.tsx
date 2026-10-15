@@ -125,18 +125,36 @@ function createPanelGate(ctx: ClientContext) {
   }
 
   return {
-    /** 探测官方面板槽位；支持则 ready，不支持静默降级 */
+    /**
+     * 探测官方面板槽位并挂载。槽位声明晚于 client apply（dsh-taskboard
+     * 同款问题），所以带宽限轮询：每 2s 重试，最多 60s；无 spec 能力的
+     * 宿主直接降级（用户仍可从设置进入）。
+     */
     probe(): void {
-      try {
-        const slots = (ctx.get?.('slots') ?? ctx.slots) as SlotsService
-        if (typeof slots.spec !== 'function') return
-        if (slots.spec('main') === undefined) return
-        if (slots.spec('sidebar.panellist') === undefined) return
-        ready = true
-        apply()
-      } catch {
-        // 探测失败即降级
+      const attempt = (retriesLeft: number): void => {
+        try {
+          const slots = (ctx.get?.('slots') ?? ctx.slots) as SlotsService
+          if (typeof slots.spec !== 'function') {
+            console.info('[dsh-skill-market] host slots have no spec() — panel entry disabled')
+            return
+          }
+          if (slots.spec('main') === undefined || slots.spec('sidebar.panellist') === undefined) {
+            if (retriesLeft > 0) {
+              setTimeout(() => attempt(retriesLeft - 1), 2000)
+            } else {
+              console.info('[dsh-skill-market] panel slots never appeared — panel entry disabled')
+            }
+            return
+          }
+          ready = true
+          apply()
+          console.info('[dsh-skill-market] sidebar panel registered')
+        } catch (error) {
+          if (retriesLeft > 0) setTimeout(() => attempt(retriesLeft - 1), 2000)
+          else console.info('[dsh-skill-market] panel probe failed:', error)
+        }
       }
+      attempt(30)
     },
     setVisible(visible: boolean): void {
       wanted = visible
