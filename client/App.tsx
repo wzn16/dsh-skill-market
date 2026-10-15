@@ -500,7 +500,7 @@ export function App({ locale }: { locale?: LocaleService }): React.ReactElement 
             {registrySource === 'seed' ? <div className="dsm-notice">{d.registrySeedNotice}</div> : null}
 
             {/* 精选横排大卡（WorkBuddy 式） */}
-            {category === 'all' && !q && featured.length > 0 ? (
+            {!q && featured.length > 0 ? (
               <div className="dsm-featured-wrap">
                 <div className="dsm-section-title">★ {d.featured}</div>
                 <div className="dsm-featured">
